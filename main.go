@@ -57,7 +57,7 @@ func main() {
 				if errors.Is(err, afpacket.ErrTimeout) {
 					continue
 				}
-				continue
+				break
 			}
 
 			processPacket(packet)

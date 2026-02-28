@@ -91,10 +91,11 @@ func main() {
 	}
 
 	var parsers = map[gopacket.LayerType]LayerParser{
-		layers.LayerTypeARP: app.parseARP,
-		layers.LayerTypeTCP: app.parseTCP,
-		layers.LayerTypeUDP: app.parseUDP,
-		layers.LayerTypeDNS: app.parseDNS,
+		layers.LayerTypeICMPv4: app.parseICMPv4,
+		layers.LayerTypeARP:    app.parseARP,
+		layers.LayerTypeTCP:    app.parseTCP,
+		layers.LayerTypeUDP:    app.parseUDP,
+		layers.LayerTypeDNS:    app.parseDNS,
 	}
 
 	for {

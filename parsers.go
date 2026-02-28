@@ -10,6 +10,31 @@ import (
 
 type LayerParser func(packet gopacket.Packet, layer gopacket.Layer)
 
+func (app *Application) parseICMPv4(packet gopacket.Packet, layer gopacket.Layer) {
+	timestamp := packet.Metadata().Timestamp.Format("15:04:05.000000")
+	icmp := layer.(*layers.ICMPv4)
+
+	netLayer := packet.NetworkLayer()
+	if netLayer == nil {
+		return
+	}
+
+	srcIP, dstIP := netLayer.NetworkFlow().Src().String(), netLayer.NetworkFlow().Dst().String()
+	if app.config.dnsResolve {
+		srcIP, dstIP = app.dnsCache.getHostname(srcIP), app.dnsCache.getHostname(dstIP)
+	}
+
+	icmpType := icmp.TypeCode.String()
+
+	logLine := fmt.Sprintf("%s [ICMPv4] %s > %s type=%s id=%d seq=%d\n", timestamp, srcIP, dstIP, icmpType, icmp.Id, icmp.Seq)
+
+	select {
+	case app.logChannel <- logLine:
+	default:
+		// Drop the printing, too many packets
+	}
+}
+
 func (app *Application) parseARP(packet gopacket.Packet, layer gopacket.Layer) {
 	timestamp := packet.Metadata().Timestamp.Format("15:04:05.000000")
 	arp := layer.(*layers.ARP)
@@ -103,7 +128,7 @@ func (app *Application) parseDNS(packet gopacket.Packet, layer gopacket.Layer) {
 
 	if !dns.QR { // QR Flag is 0 when it's a DNS query
 		for _, q := range dns.Questions {
-			logLine := fmt.Sprintf("%s [DNS %d] %s asked %s for '%s' (%s)\n", timestamp, dns.ID, srcIP, dstIP, q.Name, q.Type.String())
+			logLine := fmt.Sprintf("%s [DNS] %s asked %s for '%s' (%s) id=%d\n", timestamp, srcIP, dstIP, q.Name, q.Type.String(), dns.ID)
 
 			select {
 			case app.logChannel <- logLine:
@@ -114,7 +139,7 @@ func (app *Application) parseDNS(packet gopacket.Packet, layer gopacket.Layer) {
 	} else {
 		if len(dns.Questions) > 0 && len(dns.Answers) == 0 {
 			q := dns.Questions[0]
-			logLine := fmt.Sprintf("%s [DNS %d] %s replied to '%s' (%s) with 0 answers\n", timestamp, dns.ID, srcIP, q.Name, q.Type.String())
+			logLine := fmt.Sprintf("%s [DNS] %s replied to '%s' (%s) with 0 answers id=%d\n", timestamp, srcIP, q.Name, q.Type.String(), dns.ID)
 
 			select {
 			case app.logChannel <- logLine:
@@ -129,9 +154,9 @@ func (app *Application) parseDNS(packet gopacket.Packet, layer gopacket.Layer) {
 			var logLine string
 			switch ans.Type {
 			case layers.DNSTypeA, layers.DNSTypeAAAA:
-				logLine = fmt.Sprintf("%s [DNS %d] %s answered with: %s\n", timestamp, dns.ID, srcIP, ans.IP)
+				logLine = fmt.Sprintf("%s [DNS] %s answered with: %s id=%d\n", timestamp, srcIP, ans.IP, dns.ID)
 			case layers.DNSTypeCNAME:
-				logLine = fmt.Sprintf("%s [DNS %d] %s answered with alias: %s\n", timestamp, dns.ID, srcIP, ans.CNAME)
+				logLine = fmt.Sprintf("%s [DNS] %s answered with alias: %s id=%d\n", timestamp, srcIP, ans.CNAME, dns.ID)
 			}
 
 			if logLine == "" {

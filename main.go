@@ -17,12 +17,19 @@ import (
 	"github.com/google/gopacket/layers"
 )
 
+type Config struct {
+	dnsResolve bool
+}
+
 type Application struct {
+	config     Config
+	dnsCache   DNSCache
 	logChannel chan string
 }
 
 func main() {
 	ifaceName := flag.String("i", "any", "The network interface to attach to")
+	dnsResolve := flag.Bool("r", false, "Enable DNS resolution")
 	flag.Parse()
 
 	frameSize := 4096
@@ -74,10 +81,17 @@ func main() {
 	source.DecodeOptions = gopacket.Lazy
 
 	app := &Application{
+		config: Config{
+			dnsResolve: *dnsResolve,
+		},
 		logChannel: logCh,
+		dnsCache: DNSCache{
+			cache: make(map[string]string),
+		},
 	}
 
 	var parsers = map[gopacket.LayerType]LayerParser{
+		layers.LayerTypeARP: app.parseARP,
 		layers.LayerTypeTCP: app.parseTCP,
 		layers.LayerTypeUDP: app.parseUDP,
 		layers.LayerTypeDNS: app.parseDNS,

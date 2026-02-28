@@ -2,12 +2,40 @@ package main
 
 import (
 	"fmt"
+	"net"
 
 	"github.com/google/gopacket"
 	"github.com/google/gopacket/layers"
 )
 
 type LayerParser func(packet gopacket.Packet, layer gopacket.Layer)
+
+func (app *Application) parseARP(packet gopacket.Packet, layer gopacket.Layer) {
+	timestamp := packet.Metadata().Timestamp.Format("15:04:05.000000")
+	arp := layer.(*layers.ARP)
+
+	srcMAC := net.HardwareAddr(arp.SourceHwAddress)
+
+	srcIP, dstIP := net.IP(arp.SourceProtAddress).String(), net.IP(arp.DstProtAddress).String()
+	if app.config.dnsResolve {
+		srcIP, dstIP = app.dnsCache.getHostname(srcIP), app.dnsCache.getHostname(dstIP)
+	}
+
+	var logLine string
+
+	switch arp.Operation {
+	case layers.ARPRequest:
+		logLine = fmt.Sprintf("%s [ARP] %s (%s) asks who's %s\n", timestamp, srcIP, srcMAC, dstIP)
+	case layers.ARPReply:
+		logLine = fmt.Sprintf("%s [ARP] %s is at %s\n", timestamp, srcIP, srcMAC)
+	}
+
+	select {
+	case app.logChannel <- logLine:
+	default:
+		// Drop the printing, too many packets
+	}
+}
 
 func (app *Application) parseTCP(packet gopacket.Packet, layer gopacket.Layer) {
 	timestamp := packet.Metadata().Timestamp.Format("15:04:05.000000")
@@ -18,7 +46,11 @@ func (app *Application) parseTCP(packet gopacket.Packet, layer gopacket.Layer) {
 		return
 	}
 
-	srcIP, dstIP := netLayer.NetworkFlow().Src(), netLayer.NetworkFlow().Dst()
+	srcIP, dstIP := netLayer.NetworkFlow().Src().String(), netLayer.NetworkFlow().Dst().String()
+	if app.config.dnsResolve {
+		srcIP, dstIP = app.dnsCache.getHostname(srcIP), app.dnsCache.getHostname(dstIP)
+	}
+
 	logLine := fmt.Sprintf("%s [TCP] %s:%d > %s:%d\n", timestamp, srcIP, tcp.SrcPort, dstIP, tcp.DstPort)
 
 	select {
@@ -41,7 +73,11 @@ func (app *Application) parseUDP(packet gopacket.Packet, layer gopacket.Layer) {
 		return
 	}
 
-	srcIP, dstIP := netLayer.NetworkFlow().Src(), netLayer.NetworkFlow().Dst()
+	srcIP, dstIP := netLayer.NetworkFlow().Src().String(), netLayer.NetworkFlow().Dst().String()
+	if app.config.dnsResolve {
+		srcIP, dstIP = app.dnsCache.getHostname(srcIP), app.dnsCache.getHostname(dstIP)
+	}
+
 	logLine := fmt.Sprintf("%s [UDP] %s:%d > %s:%d\n", timestamp, srcIP, udp.SrcPort, dstIP, udp.DstPort)
 
 	select {
@@ -60,11 +96,14 @@ func (app *Application) parseDNS(packet gopacket.Packet, layer gopacket.Layer) {
 		return
 	}
 
-	srcIP, dstIP := netLayer.NetworkFlow().Src(), netLayer.NetworkFlow().Dst()
+	srcIP, dstIP := netLayer.NetworkFlow().Src().String(), netLayer.NetworkFlow().Dst().String()
+	if app.config.dnsResolve {
+		srcIP, dstIP = app.dnsCache.getHostname(srcIP), app.dnsCache.getHostname(dstIP)
+	}
 
 	if !dns.QR { // QR Flag is 0 when it's a DNS query
 		for _, q := range dns.Questions {
-			logLine := fmt.Sprintf("%s [DNS] %s asked %s for '%s' (%s)\n", timestamp, srcIP, dstIP, q.Name, q.Type.String())
+			logLine := fmt.Sprintf("%s [DNS %d] %s asked %s for '%s' (%s)\n", timestamp, dns.ID, srcIP, dstIP, q.Name, q.Type.String())
 
 			select {
 			case app.logChannel <- logLine:
@@ -75,7 +114,7 @@ func (app *Application) parseDNS(packet gopacket.Packet, layer gopacket.Layer) {
 	} else {
 		if len(dns.Questions) > 0 && len(dns.Answers) == 0 {
 			q := dns.Questions[0]
-			logLine := fmt.Sprintf("%s [DNS] %s replied to '%s' (%s) with 0 answers\n", timestamp, srcIP, q.Name, q.Type.String())
+			logLine := fmt.Sprintf("%s [DNS %d] %s replied to '%s' (%s) with 0 answers\n", timestamp, dns.ID, srcIP, q.Name, q.Type.String())
 
 			select {
 			case app.logChannel <- logLine:
@@ -90,9 +129,9 @@ func (app *Application) parseDNS(packet gopacket.Packet, layer gopacket.Layer) {
 			var logLine string
 			switch ans.Type {
 			case layers.DNSTypeA, layers.DNSTypeAAAA:
-				logLine = fmt.Sprintf("%s [DNS] %s answered with: %s\n", timestamp, srcIP, ans.IP)
+				logLine = fmt.Sprintf("%s [DNS %d] %s answered with: %s\n", timestamp, dns.ID, srcIP, ans.IP)
 			case layers.DNSTypeCNAME:
-				logLine = fmt.Sprintf("%s [DNS] %s answered with alias: %s\n", timestamp, srcIP, ans.CNAME)
+				logLine = fmt.Sprintf("%s [DNS %d] %s answered with alias: %s\n", timestamp, dns.ID, srcIP, ans.CNAME)
 			}
 
 			if logLine == "" {

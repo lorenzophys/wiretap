@@ -29,7 +29,7 @@ type Application struct {
 
 func main() {
 	ifaceName := flag.String("i", "any", "The network interface to attach to")
-	dnsResolve := flag.Bool("r", false, "Enable DNS resolution")
+	dnsResolve := flag.Bool("r", true, "Enable DNS resolution")
 	flag.Parse()
 
 	frameSize := 4096

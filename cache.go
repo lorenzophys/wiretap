@@ -1,8 +1,10 @@
 package main
 
 import (
+	"context"
 	"net"
 	"sync"
+	"time"
 )
 
 type DNSCache struct {
@@ -24,7 +26,11 @@ func (c *DNSCache) getHostname(ip string) string {
 	c.mu.Unlock()
 
 	go func(targetIP string) {
-		names, err := net.LookupAddr(targetIP)
+		res := net.Resolver{}
+		ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+		defer cancel()
+
+		names, err := res.LookupAddr(ctx, targetIP)
 		if err == nil && len(names) > 0 {
 			c.mu.Lock()
 			c.cache[targetIP] = names[0]

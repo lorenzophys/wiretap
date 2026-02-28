@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"net"
 
@@ -13,24 +14,20 @@ type LayerParser func(packet gopacket.Packet, layer gopacket.Layer)
 func (app *Application) parseICMPv4(packet gopacket.Packet, layer gopacket.Layer) {
 	timestamp := packet.Metadata().Timestamp.Format("15:04:05.000000")
 	icmp := layer.(*layers.ICMPv4)
+	icmpType := icmp.TypeCode.String()
 
-	netLayer := packet.NetworkLayer()
-	if netLayer == nil {
+	srcIP, dstIP, err := app.unpackNetworkLayer(packet)
+	if err != nil {
 		return
 	}
-
-	srcIP, dstIP := netLayer.NetworkFlow().Src().String(), netLayer.NetworkFlow().Dst().String()
-	if app.config.dnsResolve {
-		srcIP, dstIP = app.dnsCache.getHostname(srcIP), app.dnsCache.getHostname(dstIP)
-	}
-
-	icmpType := icmp.TypeCode.String()
 
 	logLine := fmt.Sprintf("%s [ICMPv4] %s > %s type=%s id=%d seq=%d\n", timestamp, srcIP, dstIP, icmpType, icmp.Id, icmp.Seq)
 
 	select {
 	case app.logChannel <- logLine:
+		return
 	default:
+		return
 		// Drop the printing, too many packets
 	}
 }
@@ -57,7 +54,9 @@ func (app *Application) parseARP(packet gopacket.Packet, layer gopacket.Layer) {
 
 	select {
 	case app.logChannel <- logLine:
+		return
 	default:
+		return
 		// Drop the printing, too many packets
 	}
 }
@@ -66,21 +65,18 @@ func (app *Application) parseTCP(packet gopacket.Packet, layer gopacket.Layer) {
 	timestamp := packet.Metadata().Timestamp.Format("15:04:05.000000")
 	tcp := layer.(*layers.TCP)
 
-	netLayer := packet.NetworkLayer()
-	if netLayer == nil {
+	srcIP, dstIP, err := app.unpackNetworkLayer(packet)
+	if err != nil {
 		return
-	}
-
-	srcIP, dstIP := netLayer.NetworkFlow().Src().String(), netLayer.NetworkFlow().Dst().String()
-	if app.config.dnsResolve {
-		srcIP, dstIP = app.dnsCache.getHostname(srcIP), app.dnsCache.getHostname(dstIP)
 	}
 
 	logLine := fmt.Sprintf("%s [TCP] %s:%d > %s:%d\n", timestamp, srcIP, tcp.SrcPort, dstIP, tcp.DstPort)
 
 	select {
 	case app.logChannel <- logLine:
+		return
 	default:
+		return
 		// Drop the printing, too many packets
 	}
 }
@@ -93,21 +89,18 @@ func (app *Application) parseUDP(packet gopacket.Packet, layer gopacket.Layer) {
 	timestamp := packet.Metadata().Timestamp.Format("15:04:05.000000")
 	udp := layer.(*layers.UDP)
 
-	netLayer := packet.NetworkLayer()
-	if netLayer == nil {
+	srcIP, dstIP, err := app.unpackNetworkLayer(packet)
+	if err != nil {
 		return
-	}
-
-	srcIP, dstIP := netLayer.NetworkFlow().Src().String(), netLayer.NetworkFlow().Dst().String()
-	if app.config.dnsResolve {
-		srcIP, dstIP = app.dnsCache.getHostname(srcIP), app.dnsCache.getHostname(dstIP)
 	}
 
 	logLine := fmt.Sprintf("%s [UDP] %s:%d > %s:%d\n", timestamp, srcIP, udp.SrcPort, dstIP, udp.DstPort)
 
 	select {
 	case app.logChannel <- logLine:
+		return
 	default:
+		return
 		// Drop the printing, too many packets
 	}
 }
@@ -116,14 +109,9 @@ func (app *Application) parseDNS(packet gopacket.Packet, layer gopacket.Layer) {
 	timestamp := packet.Metadata().Timestamp.Format("15:04:05.000000")
 	dns := layer.(*layers.DNS)
 
-	netLayer := packet.NetworkLayer()
-	if netLayer == nil {
+	srcIP, dstIP, err := app.unpackNetworkLayer(packet)
+	if err != nil {
 		return
-	}
-
-	srcIP, dstIP := netLayer.NetworkFlow().Src().String(), netLayer.NetworkFlow().Dst().String()
-	if app.config.dnsResolve {
-		srcIP, dstIP = app.dnsCache.getHostname(srcIP), app.dnsCache.getHostname(dstIP)
 	}
 
 	if !dns.QR { // QR Flag is 0 when it's a DNS query
@@ -132,7 +120,9 @@ func (app *Application) parseDNS(packet gopacket.Packet, layer gopacket.Layer) {
 
 			select {
 			case app.logChannel <- logLine:
+				return
 			default:
+				return
 				// Drop the printing, too many packets
 			}
 		}
@@ -159,10 +149,12 @@ func (app *Application) parseDNS(packet gopacket.Packet, layer gopacket.Layer) {
 				logLine = fmt.Sprintf("%s [DNS] %s answered with alias: %s id=%d\n", timestamp, srcIP, ans.CNAME, dns.ID)
 			}
 
-			if logLine == "" {
+			if logLine != "" {
 				select {
 				case app.logChannel <- logLine:
+					return
 				default:
+					return
 					// Drop the printing, too many packets
 				}
 			}
@@ -177,4 +169,18 @@ func (app *Application) processPacket(packet gopacket.Packet, parsers map[gopack
 			parseFunc(packet, layer)
 		}
 	}
+}
+
+func (app *Application) unpackNetworkLayer(packet gopacket.Packet) (string, string, error) {
+	netLayer := packet.NetworkLayer()
+	if netLayer == nil {
+		return "", "", errors.New("network layer not found")
+	}
+
+	srcIP, dstIP := netLayer.NetworkFlow().Src().String(), netLayer.NetworkFlow().Dst().String()
+	if app.config.dnsResolve {
+		srcIP, dstIP = app.dnsCache.getHostname(srcIP), app.dnsCache.getHostname(dstIP)
+	}
+
+	return srcIP, dstIP, nil
 }

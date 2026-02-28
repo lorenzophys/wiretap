@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"log"
 	"net"
@@ -15,8 +16,7 @@ import (
 )
 
 const (
-	ifaceName      string = "wlan0"
-	ErrPollTimeout string = "packet poll timeout expired"
+	ifaceName string = "wlan0"
 )
 
 func main() {
@@ -54,7 +54,7 @@ func main() {
 		default:
 			packet, err := source.NextPacket()
 			if err != nil {
-				if err.Error() == ErrPollTimeout {
+				if errors.Is(err, afpacket.ErrTimeout) {
 					continue
 				}
 				continue
@@ -69,47 +69,4 @@ func main() {
 			return
 		}
 	}
-
-	// for packet := range source.Packets() {
-
-	// 	if ipLayer := packet.Layer(layers.LayerTypeIPv4); ipLayer != nil {
-	// 		ip := ipLayer.(*layers.IPv4)
-	// 		srcIP, dstIP := ip.SrcIP.String(), ip.DstIP.String()
-	// 	}
-
-	// 	if tcpLayer := packet.Layer(layers.LayerTypeTCP); tcpLayer != nil {
-	// 		tcp := tcpLayer.(*layers.TCP)
-	// 		srcPort, dstPort := uint16(tcp.SrcPort), uint16(tcp.DstPort)
-	// 		fmt.Printf("%s %s:%d > %s:%d TCP\n", timestamp, srcIP, srcPort, dstIP, dstPort)
-	// 		continue
-	// 	}
-
-	// 	if udpLayer := packet.Layer(layers.LayerTypeUDP); udpLayer != nil {
-	// 		udp := udpLayer.(*layers.UDP)
-	// 		srcPort, dstPort := uint16(udp.SrcPort), uint16(udp.DstPort)
-	// 		fmt.Printf("%s %s:%d > %s:%d UDP\n", timestamp, srcIP, srcPort, dstIP, dstPort)
-
-	// 		if dnsLayer := packet.Layer(layers.LayerTypeDNS); dnsLayer != nil {
-	// 			dns := dnsLayer.(*layers.DNS)
-	// 			for _, q := range dns.Questions {
-	// 				fmt.Printf("    DNS query:  %s (%v)\n", q.Name, q.Type)
-	// 			}
-	// 			for _, a := range dns.Answers {
-	// 				fmt.Printf("    DNS answer: %s -> %s\n", a.Name, a.IP)
-	// 			}
-	// 		}
-	// 		continue
-	// 	}
-
-	// 	if packet.Layer(layers.LayerTypeICMPv4) != nil {
-	// 		fmt.Printf("%s %s > %s ICMP\n", timestamp, srcIP, dstIP)
-	// 		continue
-	// 	}
-
-	// 	if arpL := packet.Layer(layers.LayerTypeARP); arpL != nil {
-	// 		arp := arpL.(*layers.ARP)
-	// 		fmt.Printf("%s ARP %v asks for %v\n", timestamp, net.IP(arp.SourceProtAddress), net.IP(arp.DstProtAddress))
-	// 		continue
-	// 	}
-	// }
 }

@@ -1,7 +1,9 @@
 package main
 
 import (
+	"bufio"
 	"errors"
+	"flag"
 	"fmt"
 	"log"
 	"net"
@@ -15,15 +17,13 @@ import (
 	"github.com/google/gopacket/layers"
 )
 
-const (
-	ifaceName string = "wlan0"
-)
+type Application struct {
+	logChannel chan string
+}
 
 func main() {
-	_, err := net.InterfaceByName(ifaceName)
-	if err != nil {
-		log.Fatalf("could not get '%s' interface: %v", ifaceName, err)
-	}
+	ifaceName := flag.String("i", "any", "The network interface to attach to")
+	flag.Parse()
 
 	frameSize := 4096
 	blockSize := frameSize * 128
@@ -31,8 +31,18 @@ func main() {
 	numBlocks := 64
 	pollTimeout := 50 * time.Millisecond
 
+	optInterface := afpacket.OptInterface("")
+	if *ifaceName != "any" {
+		_, err := net.InterfaceByName(*ifaceName)
+		if err != nil {
+			log.Fatalf("could not get '%s' interface: %v", *ifaceName, err)
+		}
+
+		optInterface = afpacket.OptInterface(*ifaceName)
+	}
+
 	handle, err := afpacket.NewTPacket(
-		afpacket.OptInterface(ifaceName),
+		optInterface,
 		afpacket.OptFrameSize(frameSize),
 		afpacket.OptBlockSize(blockSize),
 		afpacket.OptBlockTimeout(blockTimeout),
@@ -43,11 +53,35 @@ func main() {
 		log.Fatalf("failed to create a new tpacket: %v", err)
 	}
 
+	logCh := make(chan string, 10000)
+
+	go func() {
+		writer := bufio.NewWriterSize(os.Stdout, 65536)
+
+		for logLine := range logCh {
+			writer.WriteString(logLine)
+
+			if len(logCh) == 0 {
+				writer.Flush()
+			}
+		}
+	}()
+
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, os.Interrupt, syscall.SIGTERM)
 
 	source := gopacket.NewPacketSource(handle, layers.LinkTypeEthernet)
 	source.DecodeOptions = gopacket.Lazy
+
+	app := &Application{
+		logChannel: logCh,
+	}
+
+	var parsers = map[gopacket.LayerType]LayerParser{
+		layers.LayerTypeTCP: app.parseTCP,
+		layers.LayerTypeUDP: app.parseUDP,
+		layers.LayerTypeDNS: app.parseDNS,
+	}
 
 	for {
 		select {
@@ -60,7 +94,7 @@ func main() {
 				break
 			}
 
-			processPacket(packet)
+			app.processPacket(packet, parsers)
 
 		case <-sigCh:
 			handle.Close()

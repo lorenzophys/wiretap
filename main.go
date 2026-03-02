@@ -94,6 +94,8 @@ func main() {
 	var parsers = map[gopacket.LayerType]LayerParser{
 		layers.LayerTypeEthernet: app.parseEthernet,
 		layers.LayerTypeICMPv4:   app.parseICMPv4,
+		layers.LayerTypeICMPv6:   app.parseICMPv6,
+		layers.LayerTypeDHCPv4:   app.parseDHCPv4,
 		layers.LayerTypeIGMP:     app.parseIGMP,
 		layers.LayerTypeARP:      app.parseARP,
 		layers.LayerTypeTCP:      app.parseTCP,

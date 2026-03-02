@@ -64,6 +64,73 @@ func (app *Application) parseICMPv4(packet gopacket.Packet, layer gopacket.Layer
 	}
 }
 
+func (app *Application) parseICMPv6(packet gopacket.Packet, layer gopacket.Layer) {
+	timestamp := packet.Metadata().Timestamp.Format("15:04:05.000000")
+	ifaceName := getIfaceName(packet)
+
+	icmpv6 := layer.(*layers.ICMPv6)
+	icmpType := icmpv6.TypeCode.String()
+
+	srcIP, dstIP, err := app.unpackNetworkLayer(packet)
+	if err != nil {
+		return
+	}
+
+	logLine := fmt.Sprintf("%s %s [ICMPv6] %s > %s type %s code %s length %d\n",
+		timestamp, ifaceName, srcIP, dstIP, icmpType, icmpv6.TypeCode.String(), len(packet.Data()),
+	)
+
+	select {
+	case app.logChannel <- logLine:
+		return
+	default:
+		return
+		// Drop the printing, too many packets
+	}
+}
+
+func (app *Application) parseDHCPv4(packet gopacket.Packet, layer gopacket.Layer) {
+	timestamp := packet.Metadata().Timestamp.Format("15:04:05.000000")
+	ifaceName := getIfaceName(packet)
+
+	dhcpv4 := layer.(*layers.DHCPv4)
+
+	deviceMAC, deviceIP := dhcpv4.ClientHWAddr.String(), dhcpv4.YourClientIP.String()
+
+	var deviceHostname, msgType string
+	for _, opt := range dhcpv4.Options {
+		switch opt.Type {
+		case layers.DHCPOptHostname:
+			deviceHostname = string(opt.Data)
+		case layers.DHCPOptRequestIP:
+			deviceIP = net.IP(opt.Data).String()
+		case layers.DHCPOptMessageType:
+			switch opt.Data[0] {
+			case 1:
+				msgType = "Discover"
+			case 3:
+				msgType = "Request"
+			case 4:
+				msgType = "Decline"
+			case 6:
+				msgType = "NACK"
+			}
+		}
+	}
+
+	logLine := fmt.Sprintf("%s %s [DHCPv4] %s (%s) type %s ip %s\n",
+		timestamp, ifaceName, deviceMAC, deviceHostname, msgType, deviceIP,
+	)
+
+	select {
+	case app.logChannel <- logLine:
+		return
+	default:
+		return
+		// Drop the printing, too many packets
+	}
+}
+
 func (app *Application) parseIGMP(packet gopacket.Packet, layer gopacket.Layer) {
 	timestamp := packet.Metadata().Timestamp.Format("15:04:05.000000")
 	ifaceName := getIfaceName(packet)

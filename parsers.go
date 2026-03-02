@@ -11,8 +11,38 @@ import (
 
 type LayerParser func(packet gopacket.Packet, layer gopacket.Layer)
 
+func (app *Application) parseEthernet(packet gopacket.Packet, layer gopacket.Layer) {
+	ifaceName := getIfaceName(packet)
+
+	eth := layer.(*layers.Ethernet)
+
+	switch eth.EthernetType {
+	case layers.EthernetTypeARP, layers.EthernetTypeIPv4, layers.EthernetTypeIPv6:
+		return
+	default:
+		timestamp := packet.Metadata().Timestamp.Format("15:04:05.000000")
+
+		srcMAC := eth.SrcMAC.String()
+		dstMAC := eth.DstMAC.String()
+
+		logLine := fmt.Sprintf("%s %s [ETH] %s > %s ethertype 0x%04x (%s) length %d\n",
+			timestamp, ifaceName, srcMAC, dstMAC, uint16(eth.EthernetType), eth.EthernetType, len(packet.Data()),
+		)
+
+		select {
+		case app.logChannel <- logLine:
+			return
+		default:
+			return
+			// Drop if terminal is lagging
+		}
+	}
+}
+
 func (app *Application) parseICMPv4(packet gopacket.Packet, layer gopacket.Layer) {
 	timestamp := packet.Metadata().Timestamp.Format("15:04:05.000000")
+	ifaceName := getIfaceName(packet)
+
 	icmp := layer.(*layers.ICMPv4)
 	icmpType := icmp.TypeCode.String()
 
@@ -21,7 +51,33 @@ func (app *Application) parseICMPv4(packet gopacket.Packet, layer gopacket.Layer
 		return
 	}
 
-	logLine := fmt.Sprintf("%s [ICMPv4] %s > %s type=%s id=%d seq=%d\n", timestamp, srcIP, dstIP, icmpType, icmp.Id, icmp.Seq)
+	logLine := fmt.Sprintf("%s %s [ICMPv4] %s > %s type %s id %d seq %d length %d\n",
+		timestamp, ifaceName, srcIP, dstIP, icmpType, icmp.Id, icmp.Seq, len(packet.Data()),
+	)
+
+	select {
+	case app.logChannel <- logLine:
+		return
+	default:
+		return
+		// Drop the printing, too many packets
+	}
+}
+
+func (app *Application) parseIGMP(packet gopacket.Packet, layer gopacket.Layer) {
+	timestamp := packet.Metadata().Timestamp.Format("15:04:05.000000")
+	ifaceName := getIfaceName(packet)
+
+	igmp := layer.(*layers.IGMPv1or2)
+
+	srcIP, dstIP, err := app.unpackNetworkLayer(packet)
+	if err != nil {
+		return
+	}
+
+	logLine := fmt.Sprintf("%s %s [IGMP] %s > %s type %s group %s length %d\n",
+		timestamp, ifaceName, srcIP, dstIP, igmp.Type, igmp.GroupAddress, len(packet.Data()),
+	)
 
 	select {
 	case app.logChannel <- logLine:
@@ -34,6 +90,8 @@ func (app *Application) parseICMPv4(packet gopacket.Packet, layer gopacket.Layer
 
 func (app *Application) parseARP(packet gopacket.Packet, layer gopacket.Layer) {
 	timestamp := packet.Metadata().Timestamp.Format("15:04:05.000000")
+	ifaceName := getIfaceName(packet)
+
 	arp := layer.(*layers.ARP)
 
 	srcMAC := net.HardwareAddr(arp.SourceHwAddress)
@@ -47,9 +105,9 @@ func (app *Application) parseARP(packet gopacket.Packet, layer gopacket.Layer) {
 
 	switch arp.Operation {
 	case layers.ARPRequest:
-		logLine = fmt.Sprintf("%s [ARP] %s (%s) asks who's %s\n", timestamp, srcIP, srcMAC, dstIP)
+		logLine = fmt.Sprintf("%s %s [ARP] %s (%s) asks who's %s\n", timestamp, ifaceName, srcIP, srcMAC, dstIP)
 	case layers.ARPReply:
-		logLine = fmt.Sprintf("%s [ARP] %s is at %s\n", timestamp, srcIP, srcMAC)
+		logLine = fmt.Sprintf("%s %s [ARP] %s is at %s\n", timestamp, ifaceName, srcIP, srcMAC)
 	}
 
 	select {
@@ -63,6 +121,8 @@ func (app *Application) parseARP(packet gopacket.Packet, layer gopacket.Layer) {
 
 func (app *Application) parseTCP(packet gopacket.Packet, layer gopacket.Layer) {
 	timestamp := packet.Metadata().Timestamp.Format("15:04:05.000000")
+	ifaceName := getIfaceName(packet)
+
 	tcp := layer.(*layers.TCP)
 
 	srcIP, dstIP, err := app.unpackNetworkLayer(packet)
@@ -70,7 +130,9 @@ func (app *Application) parseTCP(packet gopacket.Packet, layer gopacket.Layer) {
 		return
 	}
 
-	logLine := fmt.Sprintf("%s [TCP] %s:%d > %s:%d\n", timestamp, srcIP, tcp.SrcPort, dstIP, tcp.DstPort)
+	logLine := fmt.Sprintf("%s %s [TCP] %s:%d > %s:%d length %d\n",
+		timestamp, ifaceName, srcIP, tcp.SrcPort, dstIP, tcp.DstPort, len(packet.Data()),
+	)
 
 	select {
 	case app.logChannel <- logLine:
@@ -82,11 +144,13 @@ func (app *Application) parseTCP(packet gopacket.Packet, layer gopacket.Layer) {
 }
 
 func (app *Application) parseUDP(packet gopacket.Packet, layer gopacket.Layer) {
-	if packet.ApplicationLayer() != nil {
+	if packet.Layer(layers.LayerTypeDNS) != nil {
 		return
 	}
 
 	timestamp := packet.Metadata().Timestamp.Format("15:04:05.000000")
+	ifaceName := getIfaceName(packet)
+
 	udp := layer.(*layers.UDP)
 
 	srcIP, dstIP, err := app.unpackNetworkLayer(packet)
@@ -94,7 +158,9 @@ func (app *Application) parseUDP(packet gopacket.Packet, layer gopacket.Layer) {
 		return
 	}
 
-	logLine := fmt.Sprintf("%s [UDP] %s:%d > %s:%d\n", timestamp, srcIP, udp.SrcPort, dstIP, udp.DstPort)
+	logLine := fmt.Sprintf("%s %s [UDP] %s:%d > %s:%d length %d\n",
+		timestamp, ifaceName, srcIP, udp.SrcPort, dstIP, udp.DstPort, len(packet.Data()),
+	)
 
 	select {
 	case app.logChannel <- logLine:
@@ -107,6 +173,8 @@ func (app *Application) parseUDP(packet gopacket.Packet, layer gopacket.Layer) {
 
 func (app *Application) parseDNS(packet gopacket.Packet, layer gopacket.Layer) {
 	timestamp := packet.Metadata().Timestamp.Format("15:04:05.000000")
+	ifaceName := getIfaceName(packet)
+
 	dns := layer.(*layers.DNS)
 
 	srcIP, dstIP, err := app.unpackNetworkLayer(packet)
@@ -116,7 +184,9 @@ func (app *Application) parseDNS(packet gopacket.Packet, layer gopacket.Layer) {
 
 	if !dns.QR { // QR Flag is 0 when it's a DNS query
 		for _, q := range dns.Questions {
-			logLine := fmt.Sprintf("%s [DNS] %s asked %s for '%s' (%s) id=%d\n", timestamp, srcIP, dstIP, q.Name, q.Type.String(), dns.ID)
+			logLine := fmt.Sprintf("%s %s [DNS] %s asked %s for '%s' (%s) id=%d\n",
+				timestamp, ifaceName, srcIP, dstIP, q.Name, q.Type.String(), dns.ID,
+			)
 
 			select {
 			case app.logChannel <- logLine:
@@ -127,9 +197,29 @@ func (app *Application) parseDNS(packet gopacket.Packet, layer gopacket.Layer) {
 			}
 		}
 	} else {
+		if dns.ResponseCode != layers.DNSResponseCodeNoErr {
+			var qName string
+			if len(dns.Questions) > 0 {
+				qName = string(dns.Questions[0].Name)
+			}
+
+			logLine := fmt.Sprintf("%s %s [DNS] %s replied %s for '%s' id=%d\n",
+				timestamp, ifaceName, srcIP, dns.ResponseCode.String(), qName, dns.ID,
+			)
+
+			select {
+			case app.logChannel <- logLine:
+				return
+			default:
+				return
+			}
+		}
+
 		if len(dns.Questions) > 0 && len(dns.Answers) == 0 {
 			q := dns.Questions[0]
-			logLine := fmt.Sprintf("%s [DNS] %s replied to '%s' (%s) with 0 answers id=%d\n", timestamp, srcIP, q.Name, q.Type.String(), dns.ID)
+			logLine := fmt.Sprintf("%s %s [DNS] %s replied to '%s' (%s) with 0 answers id=%d\n",
+				timestamp, ifaceName, srcIP, q.Name, q.Type.String(), dns.ID,
+			)
 
 			select {
 			case app.logChannel <- logLine:
@@ -144,9 +234,13 @@ func (app *Application) parseDNS(packet gopacket.Packet, layer gopacket.Layer) {
 			var logLine string
 			switch ans.Type {
 			case layers.DNSTypeA, layers.DNSTypeAAAA:
-				logLine = fmt.Sprintf("%s [DNS] %s answered with: %s id=%d\n", timestamp, srcIP, ans.IP, dns.ID)
+				logLine = fmt.Sprintf("%s %s [DNS] %s answered with: %s id=%d\n",
+					timestamp, ifaceName, srcIP, ans.IP, dns.ID,
+				)
 			case layers.DNSTypeCNAME:
-				logLine = fmt.Sprintf("%s [DNS] %s answered with alias: %s id=%d\n", timestamp, srcIP, ans.CNAME, dns.ID)
+				logLine = fmt.Sprintf("%s %s [DNS] %s answered with alias: %s id=%d\n",
+					timestamp, ifaceName, srcIP, ans.CNAME, dns.ID,
+				)
 			}
 
 			if logLine != "" {
@@ -183,4 +277,11 @@ func (app *Application) unpackNetworkLayer(packet gopacket.Packet) (string, stri
 	}
 
 	return srcIP, dstIP, nil
+}
+
+func getIfaceName(packet gopacket.Packet) string {
+	ifaceIdx := packet.Metadata().InterfaceIndex
+	ifaceName, _ := net.InterfaceByIndex(ifaceIdx)
+
+	return ifaceName.Name
 }

@@ -19,6 +19,7 @@ import (
 
 type Config struct {
 	dnsResolve bool
+	ifaceName  string
 }
 
 type Application struct {
@@ -91,11 +92,13 @@ func main() {
 	}
 
 	var parsers = map[gopacket.LayerType]LayerParser{
-		layers.LayerTypeICMPv4: app.parseICMPv4,
-		layers.LayerTypeARP:    app.parseARP,
-		layers.LayerTypeTCP:    app.parseTCP,
-		layers.LayerTypeUDP:    app.parseUDP,
-		layers.LayerTypeDNS:    app.parseDNS,
+		layers.LayerTypeEthernet: app.parseEthernet,
+		layers.LayerTypeICMPv4:   app.parseICMPv4,
+		layers.LayerTypeIGMP:     app.parseIGMP,
+		layers.LayerTypeARP:      app.parseARP,
+		layers.LayerTypeTCP:      app.parseTCP,
+		layers.LayerTypeUDP:      app.parseUDP,
+		layers.LayerTypeDNS:      app.parseDNS,
 	}
 
 	for {

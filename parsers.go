@@ -51,7 +51,7 @@ func (app *Application) parseICMPv4(packet gopacket.Packet, layer gopacket.Layer
 		return
 	}
 
-	logLine := fmt.Sprintf("%s %s [ICMPv4] %s > %s type %s id %d seq %d length %d\n",
+	logLine := fmt.Sprintf("%s %s [ICMP] %s > %s type %s id %d seq %d length %d\n",
 		timestamp, ifaceName, srcIP, dstIP, icmpType, icmp.Id, icmp.Seq, len(packet.Data()),
 	)
 
@@ -118,7 +118,7 @@ func (app *Application) parseDHCPv4(packet gopacket.Packet, layer gopacket.Layer
 		}
 	}
 
-	logLine := fmt.Sprintf("%s %s [DHCPv4] %s (%s) type %s ip %s\n",
+	logLine := fmt.Sprintf("%s %s [DHCP] %s (%s) type %s ip %s\n",
 		timestamp, ifaceName, deviceMAC, deviceHostname, msgType, deviceIP,
 	)
 
@@ -338,7 +338,7 @@ func (app *Application) unpackNetworkLayer(packet gopacket.Packet) (string, stri
 		return "", "", "", errors.New("network layer not found")
 	}
 
-	ipVersion := "v4"
+	var ipVersion string
 	if netLayer.LayerType() == layers.LayerTypeIPv6 {
 		ipVersion = "v6"
 	}

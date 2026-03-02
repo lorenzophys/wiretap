@@ -251,7 +251,7 @@ func (app *Application) parseDNS(packet gopacket.Packet, layer gopacket.Layer) {
 
 	if !dns.QR { // QR Flag is 0 when it's a DNS query
 		for _, q := range dns.Questions {
-			logLine := fmt.Sprintf("%s %s [DNS] %s asked %s for '%s' (%s) id=%d\n",
+			logLine := fmt.Sprintf("%s %s [DNS] %s asked %s for '%s' (%s) id %d\n",
 				timestamp, ifaceName, srcIP, dstIP, q.Name, q.Type.String(), dns.ID,
 			)
 
@@ -270,7 +270,7 @@ func (app *Application) parseDNS(packet gopacket.Packet, layer gopacket.Layer) {
 				qName = string(dns.Questions[0].Name)
 			}
 
-			logLine := fmt.Sprintf("%s %s [DNS] %s replied %s for '%s' id=%d\n",
+			logLine := fmt.Sprintf("%s %s [DNS] %s replied %s for '%s' id %d\n",
 				timestamp, ifaceName, srcIP, dns.ResponseCode.String(), qName, dns.ID,
 			)
 
@@ -284,7 +284,7 @@ func (app *Application) parseDNS(packet gopacket.Packet, layer gopacket.Layer) {
 
 		if len(dns.Questions) > 0 && len(dns.Answers) == 0 {
 			q := dns.Questions[0]
-			logLine := fmt.Sprintf("%s %s [DNS] %s replied to '%s' (%s) with 0 answers id=%d\n",
+			logLine := fmt.Sprintf("%s %s [DNS] %s replied to '%s' (%s) with 0 answers id %d\n",
 				timestamp, ifaceName, srcIP, q.Name, q.Type.String(), dns.ID,
 			)
 
@@ -301,11 +301,11 @@ func (app *Application) parseDNS(packet gopacket.Packet, layer gopacket.Layer) {
 			var logLine string
 			switch ans.Type {
 			case layers.DNSTypeA, layers.DNSTypeAAAA:
-				logLine = fmt.Sprintf("%s %s [DNS] %s answered with: %s id=%d\n",
+				logLine = fmt.Sprintf("%s %s [DNS] %s answered with: %s id %d\n",
 					timestamp, ifaceName, srcIP, ans.IP, dns.ID,
 				)
 			case layers.DNSTypeCNAME:
-				logLine = fmt.Sprintf("%s %s [DNS] %s answered with alias: %s id=%d\n",
+				logLine = fmt.Sprintf("%s %s [DNS] %s answered with alias: %s id %d\n",
 					timestamp, ifaceName, srcIP, ans.CNAME, dns.ID,
 				)
 			}

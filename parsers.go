@@ -46,7 +46,7 @@ func (app *Application) parseICMPv4(packet gopacket.Packet, layer gopacket.Layer
 	icmp := layer.(*layers.ICMPv4)
 	icmpType := icmp.TypeCode.String()
 
-	srcIP, dstIP, err := app.unpackNetworkLayer(packet)
+	srcIP, dstIP, _, err := app.unpackNetworkLayer(packet)
 	if err != nil {
 		return
 	}
@@ -71,7 +71,7 @@ func (app *Application) parseICMPv6(packet gopacket.Packet, layer gopacket.Layer
 	icmpv6 := layer.(*layers.ICMPv6)
 	icmpType := icmpv6.TypeCode.String()
 
-	srcIP, dstIP, err := app.unpackNetworkLayer(packet)
+	srcIP, dstIP, _, err := app.unpackNetworkLayer(packet)
 	if err != nil {
 		return
 	}
@@ -137,7 +137,7 @@ func (app *Application) parseIGMP(packet gopacket.Packet, layer gopacket.Layer) 
 
 	igmp := layer.(*layers.IGMPv1or2)
 
-	srcIP, dstIP, err := app.unpackNetworkLayer(packet)
+	srcIP, dstIP, _, err := app.unpackNetworkLayer(packet)
 	if err != nil {
 		return
 	}
@@ -192,13 +192,13 @@ func (app *Application) parseTCP(packet gopacket.Packet, layer gopacket.Layer) {
 
 	tcp := layer.(*layers.TCP)
 
-	srcIP, dstIP, err := app.unpackNetworkLayer(packet)
+	srcIP, dstIP, ipVersion, err := app.unpackNetworkLayer(packet)
 	if err != nil {
 		return
 	}
 
-	logLine := fmt.Sprintf("%s %s [TCP] %s:%d > %s:%d length %d\n",
-		timestamp, ifaceName, srcIP, tcp.SrcPort, dstIP, tcp.DstPort, len(packet.Data()),
+	logLine := fmt.Sprintf("%s %s [TCP%s] %s:%d > %s:%d length %d\n",
+		timestamp, ifaceName, ipVersion, srcIP, tcp.SrcPort, dstIP, tcp.DstPort, len(packet.Data()),
 	)
 
 	select {
@@ -220,13 +220,13 @@ func (app *Application) parseUDP(packet gopacket.Packet, layer gopacket.Layer) {
 
 	udp := layer.(*layers.UDP)
 
-	srcIP, dstIP, err := app.unpackNetworkLayer(packet)
+	srcIP, dstIP, ipVersion, err := app.unpackNetworkLayer(packet)
 	if err != nil {
 		return
 	}
 
-	logLine := fmt.Sprintf("%s %s [UDP] %s:%d > %s:%d length %d\n",
-		timestamp, ifaceName, srcIP, udp.SrcPort, dstIP, udp.DstPort, len(packet.Data()),
+	logLine := fmt.Sprintf("%s %s [UDP%s] %s:%d > %s:%d length %d\n",
+		timestamp, ifaceName, ipVersion, srcIP, udp.SrcPort, dstIP, udp.DstPort, len(packet.Data()),
 	)
 
 	select {
@@ -244,7 +244,7 @@ func (app *Application) parseDNS(packet gopacket.Packet, layer gopacket.Layer) {
 
 	dns := layer.(*layers.DNS)
 
-	srcIP, dstIP, err := app.unpackNetworkLayer(packet)
+	srcIP, dstIP, _, err := app.unpackNetworkLayer(packet)
 	if err != nil {
 		return
 	}
@@ -332,10 +332,15 @@ func (app *Application) processPacket(packet gopacket.Packet, parsers map[gopack
 	}
 }
 
-func (app *Application) unpackNetworkLayer(packet gopacket.Packet) (string, string, error) {
+func (app *Application) unpackNetworkLayer(packet gopacket.Packet) (string, string, string, error) {
 	netLayer := packet.NetworkLayer()
 	if netLayer == nil {
-		return "", "", errors.New("network layer not found")
+		return "", "", "", errors.New("network layer not found")
+	}
+
+	ipVersion := "v4"
+	if netLayer.LayerType() == layers.LayerTypeIPv6 {
+		ipVersion = "v6"
 	}
 
 	srcIP, dstIP := netLayer.NetworkFlow().Src().String(), netLayer.NetworkFlow().Dst().String()
@@ -343,7 +348,7 @@ func (app *Application) unpackNetworkLayer(packet gopacket.Packet) (string, stri
 		srcIP, dstIP = app.dnsCache.getHostname(srcIP), app.dnsCache.getHostname(dstIP)
 	}
 
-	return srcIP, dstIP, nil
+	return srcIP, dstIP, ipVersion, nil
 }
 
 func getIfaceName(packet gopacket.Packet) string {

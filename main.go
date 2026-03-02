@@ -19,7 +19,6 @@ import (
 
 type Config struct {
 	dnsResolve bool
-	ifaceName  string
 }
 
 type Application struct {
